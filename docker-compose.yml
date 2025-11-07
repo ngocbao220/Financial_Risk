@@ -1,1 +1,59 @@
+version: "3.8"
+
 services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+
+  spark:
+    image: apache/spark:3.5.0
+    container_name: spark
+    depends_on:
+      - kafka
+      - cassandra
+    volumes:
+      - ./app:/app
+    environment:
+      - SPARK_MODE=driver
+    command: bash -c "sleep 25 && /opt/spark/bin/pyspark"
+
+  # producer:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: producer
+  #   depends_on:
+  #     - kafka
+  #   volumes:
+  #     - ./data:/data
+  #     - ./app:/app
+  #   environment:
+  #     - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+  #   command: bash -c "sleep 35 && python /app/producer.py"
