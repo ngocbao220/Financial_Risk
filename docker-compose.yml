@@ -33,7 +33,11 @@ services:
       - "9042:9042"
     environment:
       - CASSANDRA_CLUSTER_NAME=cassandra-cluster
-
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
   # ==================== SPARK MASTER ====================
   spark-master:
     image: apache/spark:3.5.0
@@ -66,12 +70,16 @@ services:
     container_name: spark-submit
     user: root
     depends_on:
-      - spark-master
-      - kafka
-      - cassandra
+      cassandra:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      spark-master:
+        condition: service_started
     volumes:
       - ./app:/app
       - spark-ivy-cache:/home/spark/.ivy2
+      - spark-checkpoints:/tmp/spark_checkpoints
     environment:
       - SPARK_MASTER_URL=spark://spark-master:7077
     command: >
@@ -80,6 +88,7 @@ services:
         mkdir -p /home/spark/.ivy2/cache &&
         chown -R 185:185 /home/spark/.ivy2 &&
         chmod -R 777 /home/spark/.ivy2 &&
+        chmod -R 777 /tmp/spark_checkpoints &&
 
         echo '=== Fixing script permissions ===' &&
         chmod +x /app/spark_streaming.py &&
@@ -92,7 +101,9 @@ services:
           /opt/spark/bin/spark-submit \\
             --master spark://spark-master:7077 \\
             --deploy-mode client \\
-            --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \\
+            --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,com.datastax.spark:spark-cassandra-connector_2.12:3.5.0 \\
+            --conf spark.cassandra.connection.host=cassandra \\
+            --conf spark.cassandra.connection.port=9042 \\
             /app/spark_streaming.py
         \"
       "
@@ -115,3 +126,4 @@ services:
 # ==================== VOLUME ====================
 volumes:
   spark-ivy-cache:
+  spark-checkpoints:
