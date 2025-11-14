@@ -1,13 +1,8 @@
 import asyncio
 import websockets
 import json
-from datetime import datetime
-
-# Hàm chuyển timestamp từ Binance sang readable
-def convert_time(ms):
-    if ms:
-        return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
-    return None
+from kafka_producer import send_to_kafka
+from helpers import convert_time
 
 async def ticker_stream(symbol: str, interval: str = "1h"):
     url = f"wss://stream.binance.com:9443/ws/{symbol.lower()}@ticker_{interval}"
@@ -47,7 +42,7 @@ async def ticker_stream(symbol: str, interval: str = "1h"):
                 print("===============================\n")
 
                 # Send to Kafka nếu muốn
-                # send_to_kafka(f'ticker_{interval}_stream', data)
+                send_to_kafka(f'ticker_{interval}_stream', data)
 
             except Exception as e:
                 print(f"[TICKER] Error: {e}")

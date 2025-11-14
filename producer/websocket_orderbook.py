@@ -2,13 +2,8 @@ import asyncio
 import websockets
 import json
 from datetime import datetime
-# from producer_kafka import send_to_kafka
-
-def convert_time(ms):
-    """Chuyển timestamp Unix(ms) sang dạng readable"""
-    if ms:
-        return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    return None
+from helpers import convert_time
+from kafka_producer import send_to_kafka
 
 async def orderbook_stream(symbol: str, depth: int = 5):
     url = f"wss://stream.binance.com:9443/ws/{symbol.lower()}@depth@100ms"
@@ -24,21 +19,21 @@ async def orderbook_stream(symbol: str, depth: int = 5):
                 event_time = convert_time(data.get('E'))
 
                 # Lấy top N bids/asks
-                bids = data.get('b', [])[:depth]
-                asks = data.get('a', [])[:depth]
+                bids = data.get('b', [])
+                asks = data.get('a', [])
 
                 # Log trên terminal
                 print(f"\n===== {symbol.upper()} ORDERBOOK @ {event_time} =====")
-                print("Top Bids:")
+                print("Bids:")
                 for price, qty in bids:
                     print(f"  Price: {price} | Qty: {qty}")
-                print("Top Asks:")
+                print("Asks:")
                 for price, qty in asks:
                     print(f"  Price: {price} | Qty: {qty}")
                 print("======================================\n")
 
                 # Gửi Kafka
-                # send_to_kafka('orderbook_stream', data)
+                send_to_kafka('orderbook_stream', data)
 
             except Exception as e:
                 print(f"[ORDERBOOK] Error: {e}")

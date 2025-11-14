@@ -1,51 +1,107 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, when, to_timestamp
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType
+from pyspark.sql.functions import col, from_json, to_timestamp
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, LongType, TimestampType
 
+# =======================
+# 1. Spark session
+# =======================
 spark = SparkSession.builder \
-    .appName("RiskStreamProcessor") \
-    .config("spark.cassandra.connection.host", "cassandra") \
+    .appName("BinanceRealtime") \
+    .config("spark.sql.shuffle.partitions", "2") \
     .getOrCreate()
 
-schema = StructType([
-    StructField("ticker", StringType()),
-    StructField("date", StringType()),
-    StructField("accounting", DoubleType()),
-    StructField("misstatement", DoubleType()),
-    StructField("events", DoubleType()),
-    StructField("risk", DoubleType()),
-    StructField("risk_ind_adjs", DoubleType())
+spark.sparkContext.setLogLevel("WARN")
+
+# =======================
+# 2. Kafka bootstrap
+# =======================
+KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"  # hoặc localhost:9092 nếu chạy local
+
+# =======================
+# 3. Schema cho các stream
+# =======================
+trade_schema = StructType([
+    StructField("e", StringType(), True),
+    StructField("E", LongType(), True),
+    StructField("s", StringType(), True),
+    StructField("p", StringType(), True),
+    StructField("q", StringType(), True),
+    StructField("m", StringType(), True)
 ])
 
-kafka_df = spark.readStream \
-    .format("kafka") \
-    .option("kafka.bootstrap.servers", "kafka:9092") \
-    .option("subscribe", "risk_signals") \
-    .option("startingOffsets", "earliest") \
-    .load()
+ticker_schema = StructType([
+    StructField("e", StringType(), True),
+    StructField("E", LongType(), True),
+    StructField("s", StringType(), True),
+    StructField("p", StringType(), True),
+    StructField("P", StringType(), True),
+    StructField("o", StringType(), True),
+    StructField("h", StringType(), True),
+    StructField("l", StringType(), True),
+    StructField("c", StringType(), True),
+    StructField("v", StringType(), True),
+    StructField("q", StringType(), True)
+])
 
-values = kafka_df.selectExpr("CAST(value AS STRING) as json")
-parsed = values.select(from_json(col("json"), schema).alias("data")).select("data.*")
+orderbook_schema = StructType([
+    StructField("lastUpdateId", LongType(), True),
+    StructField("bids", StringType(), True),
+    StructField("asks", StringType(), True),
+    StructField("E", LongType(), True),
+    StructField("s", StringType(), True)
+])
 
-# 🔍 Phân loại rủi ro dựa trên risk/risk_ind_adjs
-scored = parsed.withColumn(
-    "risk_level",
-    when(col("risk_ind_adjs") > 0.8, "HIGH")
-    .when(col("risk_ind_adjs") > 0.5, "MEDIUM")
-    .otherwise("LOW")
-)
+# =======================
+# 4. Read Kafka streams
+# =======================
+def read_kafka_stream(topic, schema):
+    df = spark.readStream \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
+        .option("subscribe", topic) \
+        .option("startingOffsets", "latest") \
+        .load()
+    
+    df = df.selectExpr("CAST(value AS STRING) as json_str") \
+           .select(from_json(col("json_str"), schema).alias("data")) \
+           .select("data.*")
+    return df
 
-def write_to_cassandra(df, epoch_id):
-    df.write \
-        .format("org.apache.spark.sql.cassandra") \
-        .mode("append") \
-        .options(table="risk_signals", keyspace="op_risk") \
-        .save()
+trade_df = read_kafka_stream("trade_stream", trade_schema)
+ticker_df = read_kafka_stream("ticker_stream", ticker_schema)
+orderbook_df = read_kafka_stream("orderbook_stream", orderbook_schema)
 
-query = scored.writeStream \
-    .foreachBatch(write_to_cassandra) \
-    .outputMode("append") \
-    .option("checkpointLocation", "/tmp/checkpoints/risk_stream") \
-    .start()
+# =======================
+# 5. Convert timestamps
+# =======================
+trade_df = trade_df.withColumn("ts", (col("E")/1000).cast(TimestampType()))
+ticker_df = ticker_df.withColumn("ts", (col("E")/1000).cast(TimestampType()))
+orderbook_df = orderbook_df.withColumn("ts", (col("E")/1000).cast(TimestampType()))
 
-query.awaitTermination()
+# =======================
+# 6. Write to ClickHouse
+# =======================
+CLICKHOUSE_URL = "jdbc:clickhouse://clickhouse:8123/default"
+CLICKHOUSE_DRIVER = "com.clickhouse.jdbc.ClickHouseDriver"
+
+def write_to_clickhouse(df, table_name, checkpoint_location):
+    return df.writeStream \
+        .format("jdbc") \
+        .option("driver", CLICKHOUSE_DRIVER) \
+        .option("url", CLICKHOUSE_URL) \
+        .option("dbtable", table_name) \
+        .option("checkpointLocation", checkpoint_location) \
+        .outputMode("append") \
+        .start()
+
+# =======================
+# 7. Start streams
+# =======================
+trade_query = write_to_clickhouse(trade_df, "trades", "/tmp/checkpoints/trade")
+ticker_query = write_to_clickhouse(ticker_df, "tickers", "/tmp/checkpoints/ticker")
+orderbook_query = write_to_clickhouse(orderbook_df, "orderbooks", "/tmp/checkpoints/orderbook")
+
+# =======================
+# 8. Await termination
+# =======================
+spark.streams.awaitAnyTermination()

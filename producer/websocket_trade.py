@@ -2,13 +2,8 @@ import asyncio
 import websockets
 import json
 from datetime import datetime
-# from producer_kafka import send_to_kafka
-
-# Hàm chuyển timestamp từ Binance sang readable
-def convert_time(ms):
-    if ms:
-        return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    return None
+from kafka_producer import send_to_kafka
+from helpers import convert_time
 
 async def trade_stream(symbol: str):
     url = f"wss://stream.binance.com:9443/ws/{symbol.lower()}@trade"
@@ -33,7 +28,7 @@ async def trade_stream(symbol: str):
                 print(f"[{symbol.upper()}] Trade ID: {trade_id} | {side} | Price: {price} | Qty: {quantity} | Event: {event_time}")
 
                 # Gửi dữ liệu Kafka
-                # send_to_kafka('trade_stream', data)
+                send_to_kafka('trade_stream', data)
 
             except Exception as e:
                 print(f"[TRADE] Error: {e}")
