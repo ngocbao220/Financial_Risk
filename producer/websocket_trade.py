@@ -28,7 +28,7 @@ async def trade_stream(symbol: str):
                 print(f"[{symbol.upper()}] Trade ID: {trade_id} | {side} | Price: {price} | Qty: {quantity} | Event: {event_time}")
 
                 # Gửi dữ liệu Kafka
-                send_to_kafka('trade_stream', data)
+                send_to_kafka('binance_trades', data)
 
             except Exception as e:
                 print(f"[TRADE] Error: {e}")

@@ -33,7 +33,7 @@ async def orderbook_stream(symbol: str, depth: int = 5):
                 print("======================================\n")
 
                 # Gửi Kafka
-                send_to_kafka('orderbook_stream', data)
+                send_to_kafka('binance_orderbook', data)
 
             except Exception as e:
                 print(f"[ORDERBOOK] Error: {e}")

@@ -18,12 +18,11 @@ services:
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"
+      - "127.0.0.1:9092:9092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
 
-      # ← 4 DÒNG QUAN TRỌNG NHẤT – THIẾU 1 DÒNG LÀ TIMEOUT!
       KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://host.docker.internal:19092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
@@ -106,32 +105,17 @@ services:
       - clickhouse
     volumes:
       - ./app:/app
-      - ./jars:/opt/spark/jars
-      - spark-ivy-cache:/home/spark/.ivy2
-      - spark-checkpoints:/tmp/spark_checkpoints
+      - ./jars:/extra-jars          # không ghi đè thư mục jars của Spark
     environment:
-      - SPARK_MASTER_URL=spark://spark-master:7077
-
+      SPARK_MASTER_URL: spark://spark-master:7077
     command: >
-      bash -c "
-        echo '=== Fixing Ivy cache permissions ===' &&
-        mkdir -p /home/spark/.ivy2/cache &&
-        chmod -R 777 /home/spark/.ivy2 &&
-        chmod -R 777 /tmp/spark_checkpoints &&
-        chmod -R 777 /app &&
-        echo '=== Waiting for Spark Master...' &&
-        sleep 20 &&
-        echo '=== Submitting job to Spark Cluster ===' &&
-        su -s /bin/bash spark -c '
-          /opt/spark/bin/spark-submit \
-          --master spark://spark-master:7077 \
-          --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
-          --jars /opt/spark/jars/clickhouse-spark-runtime-3.5_2.12-0.8.1.jar \
-          --conf spark.driver.memory=2g \
-          --conf spark.executor.memory=2g \
-          /app/spark_streaming.py
-        '
-      "
+      /opt/spark/bin/spark-submit
+        --master spark://spark-master:7077
+        --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
+        --jars /extra-jars/clickhouse-spark-runtime-3.5_2.12-0.8.1.jar
+        --conf spark.driver.memory=2g
+        --conf spark.executor.memory=2g
+        /app/spark_streaming.py
 
   # ==================== PRODUCER (PYTHON) ====================
   producer:

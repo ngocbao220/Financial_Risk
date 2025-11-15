@@ -1,7 +1,4 @@
 import asyncio
-import websockets
-import json
-import time
 from websocket_orderbook import orderbook_stream
 from websocket_ticker import ticker_stream
 from websocket_trade import trade_stream

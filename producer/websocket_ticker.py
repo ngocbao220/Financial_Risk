@@ -42,7 +42,7 @@ async def ticker_stream(symbol: str, interval: str = "1h"):
                 print("===============================\n")
 
                 # Send to Kafka nếu muốn
-                send_to_kafka(f'ticker_{interval}_stream', data)
+                send_to_kafka(f'binance_tickers_{interval}', data)
 
             except Exception as e:
                 print(f"[TICKER] Error: {e}")
