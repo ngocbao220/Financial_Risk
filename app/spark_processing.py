@@ -29,7 +29,7 @@ TOPIC_ORDERBOOK = "binance_orderbook"
 
 # Đường dẫn lưu Parquet
 OUTPUT_PATH = "/data/processed"
-CHECKPOINT_DIR = "/tmp/spark_checkpoints_processing"
+CHECKPOINT_DIR = "/checkpoints"
 
 # ======================================================
 # ĐỊNH NGHĨA SCHEMAS
@@ -132,7 +132,7 @@ query_trades_parquet = (
     .option("path", f"{OUTPUT_PATH}/trades")
     .option("checkpointLocation", f"{CHECKPOINT_DIR}/trades_parquet")
     .partitionBy("Symbol", "Year", "Month", "Day", "Hour")
-    .trigger(processingTime="10 seconds")
+    .trigger(processingTime="5 seconds")
     .start()
 )
 
@@ -189,6 +189,7 @@ query_tickers_parquet = (
     .option("path", f"{OUTPUT_PATH}/tickers")
     .option("checkpointLocation", f"{CHECKPOINT_DIR}/tickers_parquet")
     .partitionBy("Symbol", "Year", "Month", "Day")
+    .trigger(processingTime="5 seconds")
     .start()
 )
 
@@ -245,47 +246,28 @@ asks_df = parsed_orderbook_df.select(
 # Union orderbook
 orderbook_df = bids_df.unionByName(asks_df)
 
-# Calculate statistics per window
-orderbook_stats_df = (
+# Simplified orderbook - NO AGGREGATION to avoid checkpoint issues
+orderbook_simple_df = (
     orderbook_df
-    .withWatermark("EventTime", "10 seconds")
-    .groupBy(
-        window(col("EventTime"), "5 seconds"),
-        col("Symbol"),
-        col("Side")
-    )
-    .agg(
-        _sum("Qty").alias("TotalQty"),
-        avg("Price").alias("AvgPrice"),
-        count("*").alias("NumLevels")
-    )
-    .select(
-        col("window.start").alias("WindowStart"),
-        col("window.end").alias("WindowEnd"),
-        col("Symbol"),
-        col("Side"),
-        col("TotalQty"),
-        col("AvgPrice"),
-        col("NumLevels")
-    )
-    .withColumn("Year", year(col("WindowStart")))
-    .withColumn("Month", month(col("WindowStart")))
-    .withColumn("Day", dayofmonth(col("WindowStart")))
-    .withColumn("Hour", hour(col("WindowStart")))
+    .withColumn("Year", year(col("EventTime")))
+    .withColumn("Month", month(col("EventTime")))
+    .withColumn("Day", dayofmonth(col("EventTime")))
+    .withColumn("Hour", hour(col("EventTime")))
 )
 
 # ======================================================
-# PHASE 3.6: BATCH ORDERBOOK → PARQUET
+# PHASE 3.6: BATCH ORDERBOOK → PARQUET (SIMPLIFIED - NO AGGREGATION)
 # ======================================================
-print("💾 Phase 3.6: Writing Orderbook Stats to Parquet...")
+print("💾 Phase 3.6: Writing Orderbook to Parquet (Simplified)...")
 
 query_orderbook_parquet = (
-    orderbook_stats_df.writeStream
+    orderbook_simple_df.writeStream
     .format("parquet")
     .outputMode("append")
-    .option("path", f"{OUTPUT_PATH}/orderbook_stats")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/orderbook_parquet")
+    .option("path", f"{OUTPUT_PATH}/orderbook")
+    .option("checkpointLocation", f"{CHECKPOINT_DIR}/orderbook_simple")
     .partitionBy("Symbol", "Year", "Month", "Day")
+    .trigger(processingTime="5 seconds")
     .start()
 )
 
@@ -300,16 +282,19 @@ query_trades_console = (
     .outputMode("append")
     .option("truncate", False)
     .option("checkpointLocation", f"{CHECKPOINT_DIR}/trades_console")
+    .trigger(processingTime="5 seconds")
     .start()
 )
 
 query_orderbook_console = (
-    orderbook_stats_df
+    orderbook_simple_df
+    .select("Symbol", "EventTime", "Side", "Price", "Qty", "Level")
     .writeStream
     .format("console")
     .outputMode("append")
     .option("truncate", False)
     .option("checkpointLocation", f"{CHECKPOINT_DIR}/orderbook_console")
+    .trigger(processingTime="5 seconds")
     .start()
 )
 

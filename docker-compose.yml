@@ -110,13 +110,17 @@ services:
       - ./app:/app
       - ./jars:/extra-jars
       - ./data:/data  # Mount data directory for Parquet files
+      - ./checkpoints:/checkpoints  # Mount checkpoint directory for persistence
     command: >
       /opt/spark/bin/spark-submit
         --master local[*]
         --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
         --jars /extra-jars/clickhouse-spark-runtime-3.5_2.12-0.8.1.jar
-        --conf spark.driver.memory=2g
-        --conf spark.executor.memory=2g
+        --conf spark.driver.memory=4g
+        --conf spark.executor.memory=4g
+        --conf spark.sql.shuffle.partitions=8
+        --conf spark.default.parallelism=8
+        --conf spark.driver.maxResultSize=2g
         /app/spark_processing.py
 
   # ==================== PRODUCER (PYTHON) ====================
