@@ -75,6 +75,9 @@ services:
     ports:
       - "8080:8080"
       - "7077:7077"
+    volumes:
+      - ./app:/app
+      - ./data:/data
     environment:
       - SPARK_MODE=master
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
@@ -94,7 +97,7 @@ services:
       - "8081:8081"
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
 
-  # ==================== SPARK SUBMIT ====================
+  # ==================== SPARK SUBMIT (PROCESSING) ====================
   spark-submit:
     image: apache/spark:3.5.0
     container_name: spark-submit
@@ -105,7 +108,8 @@ services:
       - clickhouse
     volumes:
       - ./app:/app
-      - ./jars:/extra-jars          # không ghi đè thư mục jars của Spark
+      - ./jars:/extra-jars
+      - ./data:/data  # Mount data directory for Parquet files
     environment:
       SPARK_MASTER_URL: spark://spark-master:7077
     command: >
@@ -115,7 +119,7 @@ services:
         --jars /extra-jars/clickhouse-spark-runtime-3.5_2.12-0.8.1.jar
         --conf spark.driver.memory=2g
         --conf spark.executor.memory=2g
-        /app/spark_streaming.py
+        /app/spark_processing.py
 
   # ==================== PRODUCER (PYTHON) ====================
   producer:
