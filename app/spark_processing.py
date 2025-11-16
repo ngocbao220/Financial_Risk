@@ -44,7 +44,8 @@ trade_schema = StructType([
     StructField("b", LongType()),
     StructField("a", LongType()),
     StructField("T", LongType()),
-    StructField("m", BooleanType())
+    StructField("m", BooleanType()),
+    StructField("M", BooleanType())
 ])
 
 ticker_schema = StructType([
@@ -79,7 +80,7 @@ trades_raw_df = (
     .format("kafka")
     .option("kafka.bootstrap.servers", KAFKA_BROKER)
     .option("subscribe", TOPIC_TRADES)
-    .option("startingOffsets", "latest")
+    .option("startingOffsets", "earliest")
     .load()
 )
 
@@ -87,25 +88,37 @@ trades_raw_df = (
 trades_cleaned_df = (
     trades_raw_df
     .select(from_json(col("value").cast("string"), trade_schema).alias("data"))
-    .filter(col("data").isNotNull())  # Validate JSON
+    .filter(col("data").isNotNull())
     .select(
         col("data.s").alias("Symbol"),
         col("data.t").alias("TradeID"),
         col("data.p").cast(DoubleType()).alias("Price"),
         col("data.q").cast(DoubleType()).alias("Quantity"),
-        to_timestamp(col("data.E") / 1000).alias("EventTime"),
-        to_timestamp(col("data.T") / 1000).alias("TradeTime"),
-        col("data.m").alias("IsBuyerMaker"),
-        when(col("data.m") == True, "SELL").otherwise("BUY").alias("Side"),
-        (col("data.p").cast(DoubleType()) * col("data.q").cast(DoubleType())).alias("TradeValue")
+        (col("data.E") / 1000).cast("timestamp").alias("EventTime"),
+        (col("data.T") / 1000).cast("timestamp").alias("TradeTime"),
+        col("data.m").alias("IsBuyerMaker")
     )
-    .filter(col("Price") > 0)  # Validate price
-    .filter(col("Quantity") > 0)  # Validate quantity
+    .withColumn("Side", when(col("IsBuyerMaker") == True, "SELL").otherwise("BUY"))
+    .withColumn("TradeValue", col("Price") * col("Quantity"))
+    .filter(col("Price") > 0)
+    .filter(col("Quantity") > 0)
     .withColumn("Year", year(col("TradeTime")))
     .withColumn("Month", month(col("TradeTime")))
     .withColumn("Day", dayofmonth(col("TradeTime")))
     .withColumn("Hour", hour(col("TradeTime")))
 )
+
+# DEBUG: Disabled - data parse successfully verified
+# debug_parsed = (
+#     trades_cleaned_df
+#     .select("Symbol", "TradeID", "Price", "Quantity", "TradeTime", "Side")
+#     .writeStream
+#     .format("console")
+#     .outputMode("append")
+#     .option("truncate", "false")
+#     .trigger(processingTime="10 seconds")
+#     .start()
+# )
 
 # ======================================================
 # PHASE 3.2: BATCH TRADES → PARQUET (PARTITIONED)
@@ -119,6 +132,7 @@ query_trades_parquet = (
     .option("path", f"{OUTPUT_PATH}/trades")
     .option("checkpointLocation", f"{CHECKPOINT_DIR}/trades_parquet")
     .partitionBy("Symbol", "Year", "Month", "Day", "Hour")
+    .trigger(processingTime="10 seconds")
     .start()
 )
 
@@ -132,7 +146,7 @@ tickers_raw_df = (
     .format("kafka")
     .option("kafka.bootstrap.servers", KAFKA_BROKER)
     .option("subscribe", TOPIC_TICKERS)
-    .option("startingOffsets", "latest")
+    .option("startingOffsets", "earliest")
     .load()
 )
 
@@ -188,7 +202,7 @@ orderbook_raw_df = (
     .format("kafka")
     .option("kafka.bootstrap.servers", KAFKA_BROKER)
     .option("subscribe", TOPIC_ORDERBOOK)
-    .option("startingOffsets", "latest")
+    .option("startingOffsets", "earliest")
     .load()
 )
 
