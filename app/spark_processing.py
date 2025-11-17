@@ -29,7 +29,7 @@ TOPIC_ORDERBOOK = "binance_orderbook"
 
 # Đường dẫn lưu Parquet
 OUTPUT_PATH = "/data/processed"
-CHECKPOINT_DIR = "/tmp/spark_checkpoints_processing"
+CHECKPOINT_DIR = "/checkpoints"
 
 # ======================================================
 # ĐỊNH NGHĨA SCHEMAS
@@ -245,42 +245,22 @@ asks_df = parsed_orderbook_df.select(
 # Union orderbook
 orderbook_df = bids_df.unionByName(asks_df)
 
-# Calculate statistics per window
-orderbook_stats_df = (
+# Simple orderbook without aggregation (no state, no watermark)
+orderbook_simple_df = (
     orderbook_df
-    .withWatermark("EventTime", "10 seconds")
-    .groupBy(
-        window(col("EventTime"), "5 seconds"),
-        col("Symbol"),
-        col("Side")
-    )
-    .agg(
-        _sum("Qty").alias("TotalQty"),
-        avg("Price").alias("AvgPrice"),
-        count("*").alias("NumLevels")
-    )
-    .select(
-        col("window.start").alias("WindowStart"),
-        col("window.end").alias("WindowEnd"),
-        col("Symbol"),
-        col("Side"),
-        col("TotalQty"),
-        col("AvgPrice"),
-        col("NumLevels")
-    )
-    .withColumn("Year", year(col("WindowStart")))
-    .withColumn("Month", month(col("WindowStart")))
-    .withColumn("Day", dayofmonth(col("WindowStart")))
-    .withColumn("Hour", hour(col("WindowStart")))
+    .withColumn("Year", year(col("EventTime")))
+    .withColumn("Month", month(col("EventTime")))
+    .withColumn("Day", dayofmonth(col("EventTime")))
+    .withColumn("Hour", hour(col("EventTime")))
 )
 
 # ======================================================
 # PHASE 3.6: BATCH ORDERBOOK → PARQUET
 # ======================================================
-print("💾 Phase 3.6: Writing Orderbook Stats to Parquet...")
+print("💾 Phase 3.6: Writing Orderbook to Parquet...")
 
 query_orderbook_parquet = (
-    orderbook_stats_df.writeStream
+    orderbook_simple_df.writeStream
     .format("parquet")
     .outputMode("append")
     .option("path", f"{OUTPUT_PATH}/orderbook_stats")
@@ -304,7 +284,7 @@ query_trades_console = (
 )
 
 query_orderbook_console = (
-    orderbook_stats_df
+    orderbook_simple_df
     .writeStream
     .format("console")
     .outputMode("append")
