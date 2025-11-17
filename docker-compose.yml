@@ -53,20 +53,20 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     container_name: clickhouse
+    environment:
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=12345
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
     ulimits:
       nofile:
         soft: 262144
         hard: 262144
     ports:
-      - "8123:8123" # HTTP
-      - "9000:9000" # Native
+      - "8123:8123"
+      - "9000:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
-    environment:
-      CLICKHOUSE_DB: default
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: ""
 
   # ==================== SPARK MASTER ====================
   spark-master:
@@ -77,6 +77,8 @@ services:
       - "7077:7077"
     environment:
       - SPARK_MODE=master
+    volumes:
+      - ./data/processed:/data/processed  # Thêm dòng này
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
 
   # ==================== SPARK WORKER ====================
@@ -90,6 +92,8 @@ services:
       - SPARK_MASTER_URL=spark://spark-master:7077
       - SPARK_WORKER_CORES=2
       - SPARK_WORKER_MEMORY=2g
+    volumes:
+      - ./data/processed:/data/processed  # Thêm dòng này
     ports:
       - "8081:8081"
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
@@ -106,6 +110,8 @@ services:
     volumes:
       - ./app:/app
       - ./jars:/extra-jars          # không ghi đè thư mục jars của Spark
+      - ./data/processed:/data/processed  # Thêm dòng này
+      - ./checkpoints:/checkpoints  # Thêm checkpoint
     environment:
       SPARK_MASTER_URL: spark://spark-master:7077
     command: >
@@ -113,9 +119,10 @@ services:
         --master spark://spark-master:7077
         --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
         --jars /extra-jars/clickhouse-spark-runtime-3.5_2.12-0.8.1.jar
+        --jars /extra-jars/clickhouse-jdbc-0.6.4-shaded.jar
         --conf spark.driver.memory=2g
         --conf spark.executor.memory=2g
-        /app/spark_streaming.py
+        /app/app.py
 
   # ==================== PRODUCER (PYTHON) ====================
   producer:
