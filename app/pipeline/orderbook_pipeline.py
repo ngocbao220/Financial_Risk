@@ -13,7 +13,7 @@ def start_orderbook_pipeline(spark):
     df_raw = (spark.readStream
             .format("kafka")
             .option("kafka.bootstrap.servers", KAFKA_BROKER)
-            .option("subscribe", TOPIC_TICKERS)
+            .option("subscribe", TOPIC_ORDERBOOK)
             .option("startingOffsets", "earliest")
             .option("failOnDataLoss", "false")
             .option("maxOffsetsPerTrigger", 1000) 
