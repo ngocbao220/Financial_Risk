@@ -1,603 +1,172 @@
-"""
-Binance-style Professional Trading Dashboard
-Real-time Cryptocurrency Trading Interface
-"""
-
 import streamlit as st
 import requests
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from datetime import datetime
 import time
-import os
 
-# Config
-API_URL = os.getenv("API_URL", "http://api:8000")
+# --- CẤU HÌNH KẾT NỐI ---
+# Lưu ý: Nếu chạy trong Docker, hostname thường là tên service trong docker-compose (ví dụ: 'api').
+# Nếu chạy local (2 terminal riêng biệt), dùng 'localhost'.
+API_BASE_URL = "http://api:8000" 
 
-st.set_page_config(
-    page_title="Binance Trading Dashboard",
-    page_icon="₿",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# --- QUẢN LÝ TRẠNG THÁI (SESSION STATE) ---
+# Kiểm tra xem người dùng đã đăng nhập chưa
+if 'user_info' not in st.session_state:
+    st.session_state['user_info'] = None
 
-# Custom CSS - Exact Binance Theme
-st.markdown("""
-<style>
-    /* Binance exact colors */
-    :root {
-        --binance-bg: #0B0E11;
-        --binance-surface: #181A20;
-        --binance-border: #2B3139;
-        --binance-text: #EAECEF;
-        --binance-gray: #848E9C;
-        --binance-green: #0ECB81;
-        --binance-red: #F6465D;
-        --binance-yellow: #F0B90B;
-    }
-    
-    /* Main background */
-    .stApp {
-        background-color: #0B0E11;
-    }
-    
-    /* Remove all padding */
-    .block-container {
-        padding: 1rem 1rem 0rem 1rem !important;
-        max-width: 100% !important;
-    }
-    
-    /* Headers */
-    h1, h2, h3 {
-        color: #EAECEF !important;
-        font-family: 'BinancePlex', Arial, sans-serif !important;
-        font-weight: 500 !important;
-        padding: 0 !important;
-        margin: 0 !important;
-    }
-    
-    h1 { font-size: 24px !important; }
-    h2 { font-size: 18px !important; }
-    h3 { font-size: 16px !important; color: #EAECEF !important; }
-    
-    /* Metrics */
-    [data-testid="stMetricValue"] {
-        font-size: 22px !important;
-        font-weight: 500 !important;
-        color: #EAECEF !important;
-    }
-    
-    [data-testid="stMetricLabel"] {
-        color: #848E9C !important;
-        font-size: 13px !important;
-        text-transform: none !important;
-        font-weight: 400 !important;
-    }
-    
-    /* Remove metric borders */
-    [data-testid="metric-container"] {
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-    }
-    
-    /* Selectbox and inputs */
-    .stSelectbox label, .stSlider label {
-        color: #848E9C !important;
-        font-size: 13px !important;
-    }
-    
-    .stSelectbox > div > div {
-        background-color: #181A20 !important;
-        border: 1px solid #2B3139 !important;
-        color: #EAECEF !important;
-        font-size: 14px !important;
-    }
-    
-    /* Tables - compact like Binance */
-    .dataframe {
-        font-size: 12px !important;
-        font-family: 'Consolas', monospace !important;
-    }
-    
-    /* Remove borders and backgrounds */
-    div[data-testid="stVerticalBlock"] > div {
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0px;
-        background-color: #181A20;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background-color: transparent;
-        color: #848E9C;
-        font-size: 12px;
-        padding: 8px 16px;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background-color: transparent;
-        color: #F0B90B;
-        border-bottom: 2px solid #F0B90B;
-    }
-    
-    /* Scrollbar */
-    ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: #181A20;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: #2B3139;
-        border-radius: 3px;
-    }
-    
-    /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-</style>
-""", unsafe_allow_html=True)
-
-# ============================================
-# TOP BAR - Trading Pair Selection
-# ============================================
-
-# Get available symbols
-try:
-    symbols_response = requests.get(f"{API_URL}/api/symbols")
-    symbols = symbols_response.json()["symbols"]
-except:
-    symbols = ["BTCUSDT", "ETHUSDT", "BNBBTC"]
-
-# Top navigation bar
-col1, col2, col3, col4, col5, col6 = st.columns([3, 2, 2, 2, 2, 1])
-
-with col1:
-    selected_symbol = st.selectbox("Trading Pair", symbols, label_visibility="collapsed", key="symbol_select")
-
-with col2:
-    interval = st.selectbox("Interval", ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"], index=0, label_visibility="collapsed", key="interval_select")
-
-with col3:
-    chart_type = st.selectbox("Chart Type", ["Candlestick", "Line", "Area"], label_visibility="collapsed")
-
-with col4:
-    indicator = st.selectbox("Indicators", ["None", "MA", "EMA", "BOLL", "MACD"], label_visibility="collapsed")
-
-with col5:
-    st.markdown("<div style='padding: 8px 0;'></div>", unsafe_allow_html=True)
-
-with col6:
-    auto_refresh = st.checkbox("Auto", value=False, key="auto_refresh")
-
-st.markdown("<div style='height: 1px; background: #2B3139; margin: 10px 0;'></div>", unsafe_allow_html=True)
-
-# ============================================
-# PRICE TICKER - Binance Exact Layout
-# ============================================
-hours = 24
-try:
-    stats_response = requests.get(f"{API_URL}/api/stats/{selected_symbol}?hours={hours}")
-    stats = stats_response.json()
-    
-    # Price ticker bar
-    ticker_col1, ticker_col2, ticker_col3, ticker_col4, ticker_col5, ticker_col6 = st.columns([3, 2, 2, 2, 2, 2])
-    
-    with ticker_col1:
-        # Main price display
-        current_price = stats['avg_price']
-        price_change = 1250.45  # Mock
-        price_change_pct = (price_change / current_price) * 100
-        
-        st.markdown(f"""
-        <div style='padding: 5px 0;'>
-            <div style='font-size: 24px; font-weight: 500; color: #EAECEF; line-height: 1.2;'>
-                ${current_price:,.2f}
-            </div>
-            <div style='font-size: 14px; color: {"#0ECB81" if price_change > 0 else "#F6465D"}; margin-top: 2px;'>
-                {'+' if price_change > 0 else ''}{price_change:,.2f} {'+' if price_change_pct > 0 else ''}{price_change_pct:.2f}%
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with ticker_col2:
-        st.markdown(f"""
-        <div style='padding: 8px 0;'>
-            <div style='font-size: 11px; color: #848E9C;'>24h High</div>
-            <div style='font-size: 14px; color: #EAECEF; font-weight: 500; margin-top: 2px;'>${stats['max_price']:,.2f}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with ticker_col3:
-        st.markdown(f"""
-        <div style='padding: 8px 0;'>
-            <div style='font-size: 11px; color: #848E9C;'>24h Low</div>
-            <div style='font-size: 14px; color: #EAECEF; font-weight: 500; margin-top: 2px;'>${stats['min_price']:,.2f}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with ticker_col4:
-        volume_m = stats['total_volume'] / 1_000_000
-        st.markdown(f"""
-        <div style='padding: 8px 0;'>
-            <div style='font-size: 11px; color: #848E9C;'>24h Volume (USDT)</div>
-            <div style='font-size: 14px; color: #EAECEF; font-weight: 500; margin-top: 2px;'>{volume_m:,.2f}M</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with ticker_col5:
-        st.markdown(f"""
-        <div style='padding: 8px 0;'>
-            <div style='font-size: 11px; color: #848E9C;'>24h Trades</div>
-            <div style='font-size: 14px; color: #EAECEF; font-weight: 500; margin-top: 2px;'>{stats['total_trades']:,}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with ticker_col6:
-        spread = stats['max_price'] - stats['min_price']
-        st.markdown(f"""
-        <div style='padding: 8px 0;'>
-            <div style='font-size: 11px; color: #848E9C;'>24h Range</div>
-            <div style='font-size: 14px; color: #EAECEF; font-weight: 500; margin-top: 2px;'>${spread:,.2f}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-except Exception as e:
-    st.error(f"Error loading stats: {e}")
-
-st.markdown("<div style='height: 1px; background: #2B3139; margin: 10px 0;'></div>", unsafe_allow_html=True)
-
-# ============================================
-# MAIN LAYOUT - Chart + Orderbook + Trades
-# ============================================
-
-chart_col, side_col = st.columns([3, 1])
-
-with chart_col:
-    # ============================================
-    # CANDLESTICK CHART - TradingView Style
-    # ============================================
+# --- HÀM GỌI API ---
+def api_get_all_users():
     try:
-        price_response = requests.get(
-            f"{API_URL}/api/price-history/{selected_symbol}?interval={interval}&limit=200"
-        )
-        price_data = price_response.json()["data"]
-        
-        df = pd.DataFrame(price_data)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df = df.sort_values('timestamp')
-        
-        # Tính Moving Averages (đường dự đoán xu hướng)
-        df['MA7'] = df['close'].rolling(window=7, min_periods=1).mean()
-        df['MA25'] = df['close'].rolling(window=25, min_periods=1).mean()
-        df['MA99'] = df['close'].rolling(window=99, min_periods=1).mean()
-        
-        # Create figure with secondary y-axis for volume
-        fig = make_subplots(
-            rows=2, cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.03,
-            row_heights=[0.7, 0.3],
-            subplot_titles=('', '')
-        )
-        
-        # Candlestick với custom hover
-        fig.add_trace(
-            go.Candlestick(
-                x=df['timestamp'],
-                open=df['open'],
-                high=df['high'],
-                low=df['low'],
-                close=df['close'],
-                name='',
-                increasing_line_color='#0ECB81',
-                increasing_fillcolor='#0ECB81',
-                decreasing_line_color='#F6465D',
-                decreasing_fillcolor='#F6465D',
-                whiskerwidth=1,
-                line=dict(width=1),
-                hoverinfo='skip'  # Tắt hover mặc định
-            ),
-            row=1, col=1
-        )
-        
-        # Thêm invisible scatter để custom hover (giống Binance)
-        hover_text = []
-        for idx, row in df.iterrows():
-            text = f"""<b>Time:</b> {row['timestamp'].strftime('%Y-%m-%d %H:%M')}<br><b>Open:</b> {row['open']:.2f}<br><b>High:</b> {row['high']:.2f}<br><b>Low:</b> {row['low']:.2f}<br><b>Close:</b> {row['close']:.2f}<br><b>Volume:</b> {row['volume']:,.2f}"""
-            hover_text.append(text)
-        
-        fig.add_trace(
-            go.Scatter(
-                x=df['timestamp'],
-                y=df['close'],
-                mode='markers',
-                marker=dict(size=0.1, opacity=0),
-                showlegend=False,
-                hovertemplate='%{text}<extra></extra>',
-                text=hover_text,
-                name=''
-            ),
-            row=1, col=1
-        )
-        
-        # MA7 - Đường trung bình động 7 nến (ngắn hạn - vàng)
-        fig.add_trace(
-            go.Scatter(
-                x=df['timestamp'],
-                y=df['MA7'],
-                mode='lines',
-                name='MA(7)',
-                line=dict(color='#F0B90B', width=1.5),
-                hovertemplate='<b>MA(7):</b> %{y:.2f}<extra></extra>'
-            ),
-            row=1, col=1
-        )
-        
-        # MA25 - Đường trung bình động 25 nến (trung hạn - tím)
-        fig.add_trace(
-            go.Scatter(
-                x=df['timestamp'],
-                y=df['MA25'],
-                mode='lines',
-                name='MA(25)',
-                line=dict(color='#B37FEB', width=1.5),
-                hovertemplate='<b>MA(25):</b> %{y:.2f}<extra></extra>'
-            ),
-            row=1, col=1
-        )
-        
-        # MA99 - Đường trung bình động 99 nến (dài hạn - xanh dương)
-        fig.add_trace(
-            go.Scatter(
-                x=df['timestamp'],
-                y=df['MA99'],
-                mode='lines',
-                name='MA(99)',
-                line=dict(color='#2E8B57', width=1.5),
-                hovertemplate='<b>MA(99):</b> %{y:.2f}<extra></extra>'
-            ),
-            row=1, col=1
-        )
-        
-        # Volume bars
-        colors = ['#0ECB81' if close >= open else '#F6465D' 
-                  for close, open in zip(df['close'], df['open'])]
-        
-        fig.add_trace(
-            go.Bar(
-                x=df['timestamp'],
-                y=df['volume'],
-                name='Volume',
-                marker=dict(color=colors, opacity=0.5),
-                showlegend=False
-            ),
-            row=2, col=1
-        )
-        
-        # TradingView-style layout
-        fig.update_layout(
-            template='plotly_dark',
-            paper_bgcolor='#0B0E11',
-            plot_bgcolor='#0B0E11',
-            font=dict(color='#EAECEF', family='Arial', size=13),  # Tăng font size
-            
-            uirevision=f'{selected_symbol}_{interval}',  # Giữ trạng thái riêng cho mỗi symbol+interval
-            
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="top",
-                y=0.99,
-                xanchor="left",
-                x=0.01,
-                bgcolor='rgba(24, 26, 32, 0.8)',
-                bordercolor='#2B3139',
-                borderwidth=1,
-                font=dict(size=12, color='#EAECEF')
-            ),
-            hovermode='x',
-            dragmode='pan',  # Mặc định là pan (kéo thả) thay vì zoom
-            
-            height=600,
-            margin=dict(l=0, r=0, t=30, b=0),
-            
-            xaxis=dict(
-                rangeslider=dict(visible=False),
-                showgrid=True,
-                gridcolor='#2B3139',
-                gridwidth=0.5,
-                zeroline=False,
-                showline=False,
-                # Bật range để có thể scroll/zoom
-                range=[df['timestamp'].iloc[-50], df['timestamp'].iloc[-1]] if len(df) > 50 else None
-            ),
-            
-            yaxis=dict(
-                side='right',
-                showgrid=True,
-                gridcolor='#2B3139',
-                gridwidth=0.5,
-                zeroline=False,
-                showline=False,
-                tickformat=',.2f',
-                tickfont=dict(size=13, color='#EAECEF')  # Tăng font size
-            ),
-            
-            xaxis2=dict(
-                showgrid=False,
-                zeroline=False
-            ),
-            
-            yaxis2=dict(
-                side='right',
-                showgrid=False,
-                zeroline=False
-            ),
-            
-            hoverlabel=dict(
-                bgcolor='#181A20',
-                font_size=13,  # Tăng font size tooltip
-                font_color='#EAECEF',
-                bordercolor='#2B3139',
-                align='left'
-            )
-        )
-        
-        # Update x-axis format
-        fig.update_xaxes(
-            type='date',
-            tickformat='%H:%M',
-            dtick=3600000 * 2,  # 2 hours
-            tickfont=dict(size=12, color='#848E9C')
-        )
-        
-        # Update y-axis cho volume
-        fig.update_yaxes(
-            tickfont=dict(size=12, color='#848E9C'),
-            row=2, col=1
-        )
-        
-        st.plotly_chart(fig, use_container_width=True, config={
-            'displayModeBar': True,
-            'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
-            'displaylogo': False,
-            'scrollZoom': True  # Bật scroll để zoom
-        })
+        response = requests.get(f"{API_BASE_URL}/user/get_all")
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except:
+        return []
 
-    except Exception as e:
-        st.error(f"Error loading chart: {e}")
-
-with side_col:
-    # ============================================
-    # ORDER BOOK - Binance Layout
-    # ============================================
-    st.markdown("### Order Book")
+# --- HÀM GỌI API ---
+def api_login(username):
+    """Gọi API tạo user để 'đăng nhập'"""
+    url = f"{API_BASE_URL}/user/create"
+    payload = {"username": username}
     
     try:
-        orderbook_response = requests.get(f"{API_URL}/api/orderbook/{selected_symbol}")
-        orderbook = orderbook_response.json()
-        
-        if "bids" in orderbook and "asks" in orderbook:
-            # Spread
-            spread = orderbook['spread']
-            spread_pct = (spread / orderbook['asks'][0]['price'] * 100) if len(orderbook['asks']) > 0 else 0
-            
-            st.markdown(f"""
-            <div style='text-align: center; padding: 8px; background: #181A20; margin-bottom: 8px;'>
-                <span style='color: #848E9C; font-size: 12px;'>Spread: </span>
-                <span style='color: #F0B90B; font-size: 14px; font-weight: 500;'>
-                    ${spread:.2f} ({spread_pct:.3f}%)
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Header
-            col_h1, col_h2, col_h3 = st.columns([1, 1, 1])
-            with col_h1:
-                st.markdown("<p style='color: #848E9C; font-size: 11px; margin: 0;'>Price</p>", unsafe_allow_html=True)
-            with col_h2:
-                st.markdown("<p style='color: #848E9C; font-size: 11px; margin: 0; text-align: right;'>Amount</p>", unsafe_allow_html=True)
-            with col_h3:
-                st.markdown("<p style='color: #848E9C; font-size: 11px; margin: 0; text-align: right;'>Total</p>", unsafe_allow_html=True)
-            
-            # Asks (Sell - Red)
-            asks_df = pd.DataFrame(orderbook['asks'][:15])
-            for _, row in asks_df.iterrows():
-                c1, c2, c3 = st.columns([1, 1, 1])
-                total = row['price'] * row['quantity']
-                with c1:
-                    st.markdown(f"<p style='color: #F6465D; margin: 1px 0; font-size: 12px;'>{row['price']:.2f}</p>", unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f"<p style='color: #EAECEF; margin: 1px 0; font-size: 12px; text-align: right;'>{row['quantity']:.5f}</p>", unsafe_allow_html=True)
-                with c3:
-                    st.markdown(f"<p style='color: #848E9C; margin: 1px 0; font-size: 12px; text-align: right;'>{total:.2f}</p>", unsafe_allow_html=True)
-            
-            st.markdown("<div style='height: 2px; background: #2B3139; margin: 8px 0;'></div>", unsafe_allow_html=True)
-            
-            # Bids (Buy - Green)
-            bids_df = pd.DataFrame(orderbook['bids'][:15])
-            for _, row in bids_df.iterrows():
-                c1, c2, c3 = st.columns([1, 1, 1])
-                total = row['price'] * row['quantity']
-                with c1:
-                    st.markdown(f"<p style='color: #0ECB81; margin: 1px 0; font-size: 12px;'>{row['price']:.2f}</p>", unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f"<p style='color: #EAECEF; margin: 1px 0; font-size: 12px; text-align: right;'>{row['quantity']:.5f}</p>", unsafe_allow_html=True)
-                with c3:
-                    st.markdown(f"<p style='color: #848E9C; margin: 1px 0; font-size: 12px; text-align: right;'>{total:.2f}</p>", unsafe_allow_html=True)
+        response = requests.post(url, json=payload, timeout=5)
+        if response.status_code == 200:
+            return response.json() # Trả về dict user info từ Redis
         else:
-            st.info("No orderbook data")
-    
-    except Exception as e:
-        st.error(f"{e}")
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # ============================================
-    # RECENT TRADES
-    # ============================================
-    st.markdown("### Market Trades")
-    
+            st.error(f"Lỗi API ({response.status_code}): {response.text}")
+            return None
+    except requests.exceptions.ConnectionError:
+        st.error("🔴 Không thể kết nối tới API. Hãy kiểm tra xem Docker container 'api' có đang chạy không.")
+        return None
+
+def api_get_balance(user_id):
+    """Gọi API lấy thông tin mới nhất của user"""
+    url = f"{API_BASE_URL}/user/get/{user_id}"
     try:
-        trades_response = requests.get(f"{API_URL}/api/realtime/{selected_symbol}?limit=30")
-        trades = trades_response.json()["trades"]
-        
-        trades_df = pd.DataFrame(trades)
-        
-        # Header
-        c1, c2, c3 = st.columns([2, 1, 1])
-        with c1:
-            st.markdown("<p style='color: #848E9C; font-size: 11px; margin: 0;'>Price</p>", unsafe_allow_html=True)
-        with c2:
-            st.markdown("<p style='color: #848E9C; font-size: 11px; margin: 0; text-align: right;'>Amount</p>", unsafe_allow_html=True)
-        with c3:
-            st.markdown("<p style='color: #848E9C; font-size: 11px; margin: 0; text-align: right;'>Time</p>", unsafe_allow_html=True)
-        
-        # Trades
-        for _, row in trades_df.head(25).iterrows():
-            col1, col2, col3 = st.columns([2, 1, 1])
-            
-            trade_time = pd.to_datetime(row['time']).strftime('%H:%M:%S')
-            color = '#0ECB81' if row['side'] == 'BUY' else '#F6465D'
-            
-            with col1:
-                st.markdown(f"<p style='color: {color}; margin: 1px 0; font-size: 12px; font-weight: 500;'>{row['price']:.2f}</p>", unsafe_allow_html=True)
-            with col2:
-                st.markdown(f"<p style='color: #EAECEF; margin: 1px 0; font-size: 12px; text-align: right;'>{row['quantity']:.5f}</p>", unsafe_allow_html=True)
-            with col3:
-                st.markdown(f"<p style='color: #848E9C; margin: 1px 0; font-size: 11px; text-align: right;'>{trade_time}</p>", unsafe_allow_html=True)
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            return response.json()
+    except:
+        pass
+    return None
+
+# --- GIAO DIỆN: TRANG ĐĂNG NHẬP ---
+def show_login():
+    st.set_page_config(page_title="Crypto Login", layout="centered")
+    st.title("🔐 Sàn Giao Dịch Giả Lập")
+    st.markdown("---")
     
-    except Exception as e:
-        st.error(f"{e}")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.info("Hệ thống sử dụng Redis để cấp ID và ví mới cho mỗi lần nhập tên.")
+        
+        with st.form("login_form"):
+            username = st.text_input("Tên Trader:", placeholder="Nhập nickname")
+            submitted = st.form_submit_button("🚀 Truy cập hệ thống", use_container_width=True)
+            
+            if submitted:
+                if not username.strip():
+                    st.warning("Vui lòng nhập tên!")
+                else:
+                    with st.spinner("Đang khởi tạo ví trên Blockchain (Redis)..."):
+                        user_data = api_login(username)
+                        
+                    if user_data:
+                        # Đăng nhập thành công -> Lưu vào session
+                        st.session_state['user_info'] = user_data
+                        st.success("Đăng nhập thành công!")
+                        time.sleep(0.5)
+                        st.rerun()
 
-# ============================================
-# FOOTER & AUTO REFRESH
-# ============================================
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown(f"""
-<div style='text-align: center; padding: 10px 0; border-top: 1px solid #2B3139;'>
-    <span style='color: #848E9C; font-size: 10px;'>
-        Last Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC | 
-        Data Source: Binance WebSocket | 
-        Powered by ClickHouse & Spark
-    </span>
-</div>
-""", unsafe_allow_html=True)
+def show_dashboard():
+    user = st.session_state['user_info']
+    
+    # Sidebar thông tin
+    with st.sidebar:
+        st.header(f"👤 {user['username']}")
+        st.caption(f"ID: {user['user_id']}")
+        st.divider()
+        
+        # Hiển thị số dư
+        st.metric("Số dư USD", f"${user['usd']:,.2f}")
+        st.metric("Số dư BTC", f"{user['btc']:.6f} BTC")
+        
+        st.divider()
+        if st.button("Đăng xuất / Reset"):
+            st.session_state['user_info'] = None
+            st.rerun()
 
-# Auto refresh
-if auto_refresh:
-    # TODO: Làm 1 nút để cập nhật theo 1s, 1 phút, 5 phút gì đó
-    time.sleep(10)
-    st.rerun()
+    # Màn hình chính
+    st.title("📈 Dashboard Giao Dịch")
+    
+    # Tab chức năng
+    tab1, tab2, tab3 = st.tabs(["Giao dịch", "Lịch sử", "Danh sách User (Admin)"])
+    
+    with tab1:
+        col_trade_1, col_trade_2 = st.columns(2)
+        with col_trade_1:
+            st.subheader("Đặt lệnh Mua/Bán")
+            # Form đặt lệnh (Sẽ kết nối API trade sau)
+            trade_type = st.radio("Loại lệnh", ["MUA (Buy)", "BÁN (Sell)"], horizontal=True)
+            amount = st.number_input("Số lượng (USD hoặc BTC)", min_value=0.0)
+            if st.button("Gửi lệnh", use_container_width=True):
+                st.toast(f"Đang gửi lệnh {trade_type} - Chức năng đang phát triển...")
+        
+        with col_trade_2:
+            st.subheader("Thị trường")
+            st.info("Biểu đồ nến sẽ hiển thị ở đây")
+
+    with tab2:
+        st.write("Chưa có lịch sử giao dịch.")
+
+    with tab3:
+        st.subheader("👥 Danh sách người dùng trong hệ thống")
+        if st.button("Làm mới danh sách"):
+            st.rerun()
+            
+        all_users = api_get_all_users()
+        
+        if all_users:
+            # --- ĐOẠN CODE SỬA LỖI ---
+            # Kiểm tra xem dữ liệu trả về có phải là Dict không (nguyên nhân gây lỗi)
+            if isinstance(all_users, dict):
+                # Nếu API trả về lỗi (thường FastAPI trả về key 'detail' khi lỗi)
+                if "detail" in all_users:
+                    st.error(f"Lỗi từ API: {all_users['detail']}")
+                    st.stop() # Dừng lại không vẽ bảng nữa
+                
+                # Nếu không phải lỗi mà là 1 user lẻ, bọc nó vào list
+                all_users = [all_users]
+            # -------------------------
+
+            # Chuyển thành DataFrame
+            import pandas as pd
+            df = pd.DataFrame(all_users)
+            
+            # Kiểm tra xem DataFrame có dữ liệu không trước khi gán cột
+            if not df.empty:
+                # Chỉ đổi tên cột nếu số lượng cột khớp (tránh lỗi lệch cột)
+                if len(df.columns) == 4:
+                    df.columns = ["User ID", "Tên", "Số dư USD", "Số dư BTC"]
+                
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.warning("Dữ liệu trả về rỗng.")
+        else:
+            st.info("Chưa có người dùng nào khác.")
+
+# --- HÀM MAIN ĐIỀU HƯỚNG ---
+def main():
+    if st.session_state['user_info']:
+        # Nếu có thông tin trong session -> Hiện Dashboard
+        # (Optional) Refresh data user mỗi lần reload để số dư chính xác
+        # refreshed_user = api_get_balance(st.session_state['user_info']['user_id'])
+        # if refreshed_user: st.session_state['user_info'] = refreshed_user
+        
+        show_dashboard()
+    else:
+        # Nếu chưa có -> Hiện trang Login
+        show_login()
+
+if __name__ == "__main__":
+    main()
