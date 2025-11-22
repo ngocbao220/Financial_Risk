@@ -156,7 +156,7 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
-    container_name: financial-api
+    container_name: api
     depends_on:
       - clickhouse
     ports:
@@ -184,9 +184,21 @@ services:
       API_URL: http://api:8000
     volumes:
       - ./dashboard:/app
+  
+  redis:
+    image: redis:7.2
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+
 
 volumes:
   clickhouse_data:
   clickhouse_logs:
   spark-ivy-cache:
   spark-checkpoints:
+  redis_data:
