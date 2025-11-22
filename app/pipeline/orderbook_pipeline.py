@@ -12,15 +12,15 @@ def start_orderbook_pipeline(spark):
     df_clean = orderbook_transform(df_raw)
 
     # 2. Write console log to observation
-    write_console_stream(df_clean, "orderbook", ["symbol","event_time","bid_prices","bid_quantities","ask_prices","ask_quantities"])
+    #write_console_stream(df_clean, "orderbook", ["symbol","event_time","bid_prices","bid_quantities","ask_prices","ask_quantities"])
     
     # 3. Write parquet to store further
-    write_parquet_stream(
-       df_clean,
-       path=f"{OUTPUT_PATH}/orderbook",
-       checkpoint=f"{CHECKPOINT_DIR}/orderbook",
-       partition_cols=["symbol","Year","Month","Day"]
-    )
+    #write_parquet_stream(
+    #   df_clean,
+    #   path=f"{OUTPUT_PATH}/orderbook",
+    #   checkpoint=f"{CHECKPOINT_DIR}/orderbook",
+    #   partition_cols=["symbol","Year","Month","Day"]
+    #)
 
     # 4. Write clickhouse to process real-time
     # Create table if not exists
